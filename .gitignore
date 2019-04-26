@@ -1,0 +1,6 @@
+# Packages
+node_modules/
+
+# Miscellaneous
+.tmp/
+.vscode/
