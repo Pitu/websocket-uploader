@@ -12,66 +12,104 @@ const wss = new WebSocket.Server({
 
 wss.on('connection', function connection(ws) {
 	const info = {};
+	const mergeQueue = [];
+	let isQueueRunning = false;
 
 	const getFileName = () => {
-		if (info.file.parts === 1) return info.file.name;
 		return `${info.file.name}.${info.part}`;
 	}
 
 	const saveMetadata = (data) => {
 		info.file = JSON.parse(data);
 		info.uuid = uuid();
-
-		// If there are multiple parts, create a directory to hold them
-		if (info.file.parts > 1) {
-			jetpack.dir(`${uploadFolder}/${info.uuid}`);
-		}
+		jetpack.dir(`${uploadFolder}/${info.uuid}`);
 	}
 
 	const hasMetadata = () => {
 		return info.file;
 	}
 
+	const sendReady = () => {
+		ws.send(JSON.stringify({ ready: true }));
+		console.log(`:: Ready to receieve file ${info.file.name} with ${info.file.parts} ${info.file.parts > 1 ? 'parts' : 'part'}`);
+	}
+
+	const needsNextPart = () => {
+		if (info.part < info.file.parts) {
+			ws.send(JSON.stringify({ next: true }));
+			return true;
+		}
+		return false;
+	}
+
+	const addToMergeQueue = (part) => {
+		mergeQueue.push(part);
+		if (!isQueueRunning) {
+			isQueueRunning = true;
+			mergeNextPart();
+		}
+	}
+
+	const mergeNextPart = () => {
+		if (!mergeQueue.length) {
+			isQueueRunning = false;
+			return;
+		}
+		mergePart(mergeQueue[0]);
+		// if (!isQueueBusy) mergePart(mergeQueue[0]);
+	}
+
+	const mergePart = async part => {
+		console.log('< Merging part', part)
+		const data = await jetpack.readAsync(`${uploadFolder}/${info.uuid}/${info.file.name}.${part}`, 'buffer');
+		await jetpack.appendAsync(`${uploadFolder}/${info.file.name}`, data);
+		mergeQueue.splice(0, 1);
+		mergeNextPart();
+
+		/*
+			There's a race condition I believe somewhere around the isQueueRunning assignment.
+			From time to time, I'm getting:
+				(node:18800) UnhandledPromiseRejectionWarning: Error: EBUSY: resource busy or locked
+				pointing to the appendAsync function.
+			Gotta look into it a bit more to find a proper way to queue items for merging, otherwise
+			doing it sequentially takes a lot of time for big files.
+		*/
+
+		// await jetpack.removeAsync(`${uploadFolder}/${info.uuid}/${info.file.name}.${part}`);
+	}
+
+	const deleteTempFolder = async () => {
+		// await jetpack.removeAsync(`${uploadFolder}/${info.uuid}`);
+	}
+
+	const closeConnection = () => {
+		console.log(':: Done!');
+
+		ws.send(JSON.stringify({ done: true }));
+		ws.close();
+	}
+
 	ws.on('message', async data => {
 		if (!hasMetadata()) {
 			saveMetadata(data);
-			ws.send(JSON.stringify({ ready: true }));
-			console.log(`:: Ready to receieve file ${info.file.name} with ${info.file.parts} ${info.file.parts > 1 ? 'parts' : 'part'}`);
+			sendReady();
 			return;
 		}
 
 		if (!info.part) info.part = 1;
 		else info.part++;
 
-		let path = `${uploadFolder}/${getFileName()}`;
-		if (info.file.parts > 1) path = `${uploadFolder}/${info.uuid}/${getFileName()}`;
-
+		const path = `${uploadFolder}/${info.uuid}/${getFileName()}`;
 		const stream = fs.createWriteStream(path);
 		stream.write(data);
 		stream.end();
 
 		console.log(`> Received part ${info.part} of ${info.file.parts}`);
 
-		if (info.part < info.file.parts) {
-			ws.send(JSON.stringify({ next: true }));
-			return;
-		}
+		addToMergeQueue(info.part);
+		if (needsNextPart()) return;
 
-		// TODO: The moment we finish writing to disk a part that is not the first part, we can start merging it into the original data.
-
-		if (info.file.parts > 1) {
-			for (let i = 1; i < info.file.parts + 1; i++) {
-				console.log('< Merging file', i)
-				try {
-					const data = await jetpack.readAsync(`${uploadFolder}/${info.uuid}/${info.file.name}.${i}`, 'buffer');
-					await jetpack.appendAsync(`${uploadFolder}/${info.file.name}`, data);
-				} catch (error) {
-					console.error(error);
-				}
-			}
-		}
-		console.log(':: Done!');
-		ws.send(JSON.stringify({ done: true }));
-		ws.close();
+		deleteTempFolder();
+		closeConnection();
 	});
 });
