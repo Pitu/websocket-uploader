@@ -1,0 +1,11 @@
+{
+  "name": "ws",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "fs-jetpack": "^2.2.2",
+    "uuidv4": "^4.0.0",
+    "ws": "^6.2.1"
+  }
+}

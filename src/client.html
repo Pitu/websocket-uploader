@@ -1,0 +1,49 @@
+<html>
+	<body>
+		<input type="file" id="file">
+		<button onclick="fileAdded()">Send</button>
+	</body>
+	<script>
+		function fileAdded() {
+			const selectedFile = document.getElementById('file').files[0];
+			const slices = [];
+			const maxChunkSize = 5e+7; // 50mb
+			const parts = selectedFile.size / maxChunkSize;
+			let sendIndex = 0;
+			for (i = 0; i <= parts; i++) {
+				const slice = selectedFile.slice(maxChunkSize * i, (maxChunkSize * i) + maxChunkSize);
+				slices.push(slice);
+			}
+
+			console.log(selectedFile)
+			console.log('Slices', slices);
+
+			const ws = new WebSocket('ws://localhost:6999');
+
+			// Connection opened
+			ws.addEventListener('open', function (event) {
+				console.log('> Connection ready');
+				const info = {
+					name: selectedFile.name,
+					size: selectedFile.size,
+					type: selectedFile.type,
+					parts: slices.length
+				}
+				console.log('> Sending metadata');
+				ws.send(JSON.stringify(info));
+			});
+
+			// Listen for messages
+			ws.addEventListener('message', function (event) {
+				const data = JSON.parse(event.data);
+				console.log('> Message from server', data);
+
+				if (data.done) return ws.close();
+				if (data.next) sendIndex++;
+
+				console.log('> Sending file index:', sendIndex);
+				ws.send(slices[sendIndex]);
+			});
+		}
+	</script>
+</html>
