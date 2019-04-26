@@ -1,6 +1,5 @@
 const WebSocket = require('ws');
 const uuid = require('uuidv4');
-const fs = require("fs");
 const jetpack = require('fs-jetpack');
 
 const uploadFolder = 'uploads';
@@ -44,10 +43,8 @@ wss.on('connection', function connection(ws) {
 
 	const addToMergeQueue = (part) => {
 		mergeQueue.push(part);
-		if (!isQueueRunning) {
-			isQueueRunning = true;
-			mergeNextPart();
-		}
+		if (isQueueRunning) return;
+		mergeNextPart();
 	}
 
 	const mergeNextPart = () => {
@@ -55,31 +52,27 @@ wss.on('connection', function connection(ws) {
 			isQueueRunning = false;
 			return;
 		}
+		isQueueRunning = true;
 		mergePart(mergeQueue[0]);
-		// if (!isQueueBusy) mergePart(mergeQueue[0]);
 	}
 
 	const mergePart = async part => {
 		console.log('< Merging part', part)
 		const data = await jetpack.readAsync(`${uploadFolder}/${info.uuid}/${info.file.name}.${part}`, 'buffer');
 		await jetpack.appendAsync(`${uploadFolder}/${info.file.name}`, data);
+		await jetpack.removeAsync(`${uploadFolder}/${info.uuid}/${info.file.name}.${part}`);
+
+		if (mergeQueue[0] === info.file.parts) {
+			cleanUp();
+			closeConnection();
+			return;
+		}
 		mergeQueue.splice(0, 1);
 		mergeNextPart();
-
-		/*
-			There's a race condition I believe somewhere around the isQueueRunning assignment.
-			From time to time, I'm getting:
-				(node:18800) UnhandledPromiseRejectionWarning: Error: EBUSY: resource busy or locked
-				pointing to the appendAsync function.
-			Gotta look into it a bit more to find a proper way to queue items for merging, otherwise
-			doing it sequentially takes a lot of time for big files.
-		*/
-
-		// await jetpack.removeAsync(`${uploadFolder}/${info.uuid}/${info.file.name}.${part}`);
 	}
 
-	const deleteTempFolder = async () => {
-		// await jetpack.removeAsync(`${uploadFolder}/${info.uuid}`);
+	const cleanUp = async () => {
+		await jetpack.removeAsync(`${uploadFolder}/${info.uuid}`);
 	}
 
 	const closeConnection = () => {
@@ -100,7 +93,7 @@ wss.on('connection', function connection(ws) {
 		else info.part++;
 
 		const path = `${uploadFolder}/${info.uuid}/${getFileName()}`;
-		const stream = fs.createWriteStream(path);
+		const stream = jetpack.createWriteStream(path);
 		stream.write(data);
 		stream.end();
 
@@ -108,8 +101,5 @@ wss.on('connection', function connection(ws) {
 
 		addToMergeQueue(info.part);
 		if (needsNextPart()) return;
-
-		deleteTempFolder();
-		closeConnection();
 	});
 });
