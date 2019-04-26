@@ -1,11 +1,16 @@
 {
-  "name": "ws",
-  "version": "1.0.0",
-  "main": "index.js",
-  "license": "MIT",
-  "dependencies": {
-    "fs-jetpack": "^2.2.2",
-    "uuidv4": "^4.0.0",
-    "ws": "^6.2.1"
-  }
+	"name": "ws",
+	"version": "1.0.0",
+	"main": "src/server.js",
+	"license": "MIT",
+	"author": {
+		"name": "Pitu",
+		"email": "heyitspitu@gmail.com",
+		"url": "https://github.com/Pitu"
+	},
+	"dependencies": {
+		"fs-jetpack": "^2.2.2",
+		"uuidv4": "^4.0.0",
+		"ws": "^6.2.1"
+	}
 }
